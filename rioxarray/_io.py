@@ -201,6 +201,7 @@ def open_rasterio(
     cache=None,
     lock=None,
     masked=False,
+    group=None,
     **open_kwargs
 ):
     """Open a file with rasterio (experimental).
@@ -293,18 +294,27 @@ def open_rasterio(
 
     # open the subdatasets if they exist
     if riods.subdatasets:
-        data_arrays = {}
+        dim_groups = {}
         for iii, subdataset in enumerate(riods.subdatasets):
+            if group is not None and group not in subdataset:
+                continue
+            with rasterio.open(subdataset) as rds:
+                shape = rds.shape
             rioda = open_rasterio(
                 subdataset,
-                parse_coordinates=iii == 0 and parse_coordinates,
+                parse_coordinates=shape not in dim_groups and parse_coordinates,
                 chunks=chunks,
                 cache=cache,
                 lock=lock,
                 masked=masked,
             )
-            data_arrays[rioda.name] = rioda
-        return Dataset(data_arrays)
+            if shape not in dim_groups:
+                dim_groups[shape] = {rioda.name: rioda}
+            else:
+                dim_groups[shape][rioda.name] = rioda
+        if len(dim_groups) > 1:
+            return [Dataset(dim_group) for dim_group in dim_groups.values()]
+        return Dataset(list(dim_groups.values())[0])
 
     if vrt_params is not None:
         riods = WarpedVRT(riods, **vrt_params)
